@@ -320,9 +320,9 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 ## 📬 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/security-automation-pipeline/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/security-automation-pipeline/discussions)
-- **Security**: For security issues, please email security@yourdomain.com
+- **Issues**: [GitHub Issues](https://github.com/teknikscsl/security-automation-pipeline/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/teknikscsl/security-automation-pipeline/discussions)
+- **Security**: For security issues, please email security@lucidityconsult.net
 
 ---
 
