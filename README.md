@@ -130,7 +130,7 @@ Import the Jenkinsfiles for automated maintenance:
 ## 📁 Project Structure
 
 ```
-security-automation-pipeline/
+lucidity-security-automation-pipeline/
 ├── README.md
 ├── LICENSE
 ├── docs/
