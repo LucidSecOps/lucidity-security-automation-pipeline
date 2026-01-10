@@ -27,7 +27,7 @@ Thank you for your interest in contributing to the Security Automation Pipeline!
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/yourusername/security-automation-pipeline.git
+git clone https://github.com/teknikscsl/security-automation-pipeline.git
 cd security-automation-pipeline
 git remote add upstream https://github.com/originalowner/security-automation-pipeline.git
 ```
