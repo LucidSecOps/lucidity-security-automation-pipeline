@@ -73,7 +73,7 @@ An open-source Security Orchestration, Automation, and Response (SOAR) pipeline 
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/security-automation-pipeline.git
+git clone https://github.com/teknikscsl/lucidity-security-automation-pipeline.git
 cd security-automation-pipeline
 ```
 
