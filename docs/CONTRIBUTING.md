@@ -27,9 +27,9 @@ Thank you for your interest in contributing to the Security Automation Pipeline!
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/teknikscsl/security-automation-pipeline.git
+git clone https://github.com/YOUR_USERNAME/security-automation-pipeline.git
 cd security-automation-pipeline
-git remote add upstream https://github.com/originalowner/security-automation-pipeline.git
+git remote add upstream https://github.com/teknikscsl/security-automation-pipeline.git
 ```
 
 ### Set Up Development Environment
@@ -182,7 +182,7 @@ psql -c "SELECT COUNT(*) FROM security.wazuh_misp_alerts WHERE timestamp > NOW()
 
 **DO NOT** create public issues for security vulnerabilities.
 
-Instead, email: security@example.com
+Instead, email: security@lucidityconsult.net
 
 Include:
 - Description of vulnerability
