@@ -1,0 +1,210 @@
+// =============================================================================
+// MISP Feed Sync Pipeline
+// =============================================================================
+//
+// Purpose: Automatically synchronize MISP threat intelligence feeds
+// Schedule: Every 6 hours (H */6 * * *)
+//
+// Prerequisites:
+//   1. Create 'misp-api-key' credential (Secret text) in Jenkins
+//   2. Ensure Jenkins can reach MISP server
+//
+// =============================================================================
+
+pipeline {
+    agent any
+    
+    options {
+        timeout(time: 2, unit: 'HOURS')
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+    
+    triggers {
+        cron('H */6 * * *')
+    }
+    
+    environment {
+        MISP_URL = 'https://YOUR_MISP_HOST'
+        MISP_API_KEY = credentials('misp-api-key')
+    }
+    
+    parameters {
+        booleanParam(
+            name: 'SYNC_ALL_FEEDS',
+            defaultValue: true,
+            description: 'Sync all enabled feeds'
+        )
+        booleanParam(
+            name: 'CACHE_FEEDS',
+            defaultValue: true,
+            description: 'Cache feed data after sync'
+        )
+        string(
+            name: 'SPECIFIC_FEED_ID',
+            defaultValue: '',
+            description: 'Sync specific feed ID only (leave empty for all)'
+        )
+    }
+    
+    stages {
+        stage('Pre-flight Check') {
+            steps {
+                script {
+                    echo "=== MISP Feed Sync Starting ==="
+                    echo "Target: ${MISP_URL}"
+                    
+                    def response = sh(
+                        script: """
+                            curl -sk -o /dev/null -w '%{http_code}' \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/servers/getPyMISPVersion'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (response != '200') {
+                        error "MISP connectivity check failed. HTTP ${response}"
+                    }
+                    echo "MISP connectivity: OK"
+                }
+            }
+        }
+        
+        stage('List Enabled Feeds') {
+            steps {
+                script {
+                    def feeds = sh(
+                        script: """
+                            curl -sk \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/feeds/index' | \
+                            jq -r '.[] | select(.Feed.enabled == true) | "ID: \\(.Feed.id) - \\(.Feed.name)"'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo "=== Enabled Feeds ==="
+                    echo feeds
+                    
+                    env.ENABLED_FEED_COUNT = sh(
+                        script: """
+                            curl -sk \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/feeds/index' | \
+                            jq '[.[] | select(.Feed.enabled == true)] | length'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo "Total enabled feeds: ${env.ENABLED_FEED_COUNT}"
+                }
+            }
+        }
+        
+        stage('Sync Feeds') {
+            steps {
+                script {
+                    if (params.SPECIFIC_FEED_ID?.trim()) {
+                        echo "Syncing specific feed: ${params.SPECIFIC_FEED_ID}"
+                        
+                        sh """
+                            curl -sk -X POST \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Content-Type: application/json' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/feeds/fetchFromFeed/${params.SPECIFIC_FEED_ID}' \
+                            --max-time 1800
+                        """
+                        
+                    } else if (params.SYNC_ALL_FEEDS) {
+                        echo "Syncing all enabled feeds..."
+                        
+                        def result = sh(
+                            script: """
+                                curl -sk -X POST \
+                                -H 'Authorization: ${MISP_API_KEY}' \
+                                -H 'Content-Type: application/json' \
+                                -H 'Accept: application/json' \
+                                '${MISP_URL}/feeds/fetchFromAllFeeds' \
+                                --max-time 3600
+                            """,
+                            returnStdout: true
+                        )
+                        echo "Sync initiated: ${result}"
+                        
+                        echo "Waiting for background jobs..."
+                        sleep(time: 30, unit: 'SECONDS')
+                    }
+                }
+            }
+        }
+        
+        stage('Cache Feeds') {
+            when {
+                expression { params.CACHE_FEEDS == true }
+            }
+            steps {
+                script {
+                    echo "Caching all feed data..."
+                    
+                    sh """
+                        curl -sk -X POST \
+                        -H 'Authorization: ${MISP_API_KEY}' \
+                        -H 'Content-Type: application/json' \
+                        '${MISP_URL}/feeds/cacheFeeds/all' \
+                        --max-time 1800
+                    """
+                    
+                    echo "Cache operation initiated"
+                }
+            }
+        }
+        
+        stage('Generate Report') {
+            steps {
+                script {
+                    def eventCount = sh(
+                        script: """
+                            curl -sk \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/events/index/limit:0' | jq 'length'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo """
+==============================================
+MISP Feed Sync Report
+==============================================
+Timestamp:        ${new Date()}
+MISP Instance:    ${MISP_URL}
+Feeds Synced:     ${env.ENABLED_FEED_COUNT}
+Total Events:     ${eventCount}
+Build:            ${env.BUILD_URL}
+==============================================
+                    """
+                    
+                    env.MISP_EVENT_COUNT = eventCount
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "Feed sync completed successfully"
+        }
+        failure {
+            echo "Feed sync failed!"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

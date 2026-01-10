@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-01-10T12:30:00.000Z",
+  "id": "sample-alert-002",
+  "rule": {
+    "id": "550",
+    "level": 7,
+    "description": "Integrity checksum changed.",
+    "groups": ["ossec", "syscheck", "syscheck_file"],
+    "pci_dss": ["11.5"],
+    "gpg13": ["4.11"],
+    "gdpr": ["II_5.1.f"],
+    "nist_800_53": ["SI.7"]
+  },
+  "agent": {
+    "id": "002",
+    "name": "appserver-prod",
+    "ip": "192.168.1.101"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "syscheck": {
+    "path": "/usr/bin/suspicious_binary",
+    "mode": "realtime",
+    "size_before": "12345",
+    "size_after": "54321",
+    "md5_before": "d41d8cd98f00b204e9800998ecf8427e",
+    "md5_after": "44d88612fea8a8f36de82e1278abb02f",
+    "sha1_before": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "sha1_after": "3395856ce81f2b7382dee72602f798b642f14140",
+    "sha256_before": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sha256_after": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+    "uname_before": "root",
+    "uname_after": "root",
+    "gname_before": "root",
+    "gname_after": "root",
+    "mtime_before": "2026-01-09T10:00:00",
+    "mtime_after": "2026-01-10T12:30:00",
+    "event": "modified"
+  },
+  "decoder": {
+    "name": "syscheck_integrity_changed"
+  },
+  "location": "syscheck"
+}

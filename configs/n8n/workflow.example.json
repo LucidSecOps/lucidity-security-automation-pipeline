@@ -1,0 +1,307 @@
+{
+  "name": "Wazuh Alert Enrichment with MISP",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alert",
+        "options": {}
+      },
+      "id": "webhook-001",
+      "name": "Wazuh Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [-800, 300],
+      "typeVersion": 2,
+      "webhookId": "wazuh-alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract IOCs from Wazuh alert\nconst alert = $input.first().json;\n\nconst data = alert.data || alert;\nconst rule = data.rule || {};\nconst agent = data.agent || {};\n\nconst iocs = {\n  source_ips: [],\n  dest_ips: [],\n  domains: [],\n  hashes: [],\n  filenames: []\n};\n\n// Extract IPs\nif (data.srcip) iocs.source_ips.push(data.srcip);\nif (data.dstip) iocs.dest_ips.push(data.dstip);\nif (data.src_ip) iocs.source_ips.push(data.src_ip);\nif (data.dst_ip) iocs.dest_ips.push(data.dst_ip);\nif (data.data?.srcip) iocs.source_ips.push(data.data.srcip);\nif (data.data?.dstip) iocs.dest_ips.push(data.data.dstip);\n\n// Extract file hashes from syscheck\nif (data.syscheck) {\n  if (data.syscheck.md5_after) iocs.hashes.push({ type: 'md5', value: data.syscheck.md5_after });\n  if (data.syscheck.sha1_after) iocs.hashes.push({ type: 'sha1', value: data.syscheck.sha1_after });\n  if (data.syscheck.sha256_after) iocs.hashes.push({ type: 'sha256', value: data.syscheck.sha256_after });\n  if (data.syscheck.path) iocs.filenames.push(data.syscheck.path);\n}\n\n// Extract domains from DNS\nif (data.data?.query) iocs.domains.push(data.data.query);\nif (data.dns?.question?.name) iocs.domains.push(data.dns.question.name);\n\n// Filter private IPs\nconst isPrivateIP = (ip) => {\n  if (!ip) return true;\n  const parts = ip.split('.').map(Number);\n  if (parts[0] === 10) return true;\n  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;\n  if (parts[0] === 192 && parts[1] === 168) return true;\n  if (parts[0] === 127) return true;\n  return false;\n};\n\niocs.source_ips = [...new Set(iocs.source_ips)].filter(ip => !isPrivateIP(ip));\niocs.dest_ips = [...new Set(iocs.dest_ips)].filter(ip => !isPrivateIP(ip));\niocs.domains = [...new Set(iocs.domains)].filter(d => d && !d.includes('localhost'));\n\n// Build searchable IOC list\nconst searchableIOCs = [];\niocs.source_ips.forEach(ip => searchableIOCs.push({ type: 'ip-src', value: ip }));\niocs.dest_ips.forEach(ip => searchableIOCs.push({ type: 'ip-dst', value: ip }));\niocs.domains.forEach(d => searchableIOCs.push({ type: 'domain', value: d }));\niocs.hashes.forEach(h => searchableIOCs.push({ type: h.type, value: h.value }));\n\nreturn [{\n  json: {\n    alert_id: data.id || `wazuh-${Date.now()}`,\n    timestamp: data.timestamp || new Date().toISOString(),\n    agent: { id: agent.id, name: agent.name, ip: agent.ip },\n    rule: {\n      id: rule.id,\n      level: rule.level,\n      description: rule.description,\n      groups: rule.groups || [],\n      mitre: rule.mitre || {}\n    },\n    extracted_iocs: iocs,\n    searchable_iocs: searchableIOCs,\n    has_iocs: searchableIOCs.length > 0,\n    raw_alert: data\n  }\n}];"
+      },
+      "id": "extract-001",
+      "name": "Extract IOCs",
+      "type": "n8n-nodes-base.code",
+      "position": [-576, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "id": "has-iocs", "leftValue": "={{ $json.has_iocs }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-001",
+      "name": "Has IOCs?",
+      "type": "n8n-nodes-base.if",
+      "position": [-352, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const alert = $input.first().json;\nconst iocs = alert.searchable_iocs;\n\nif (!iocs || iocs.length === 0) {\n  return [{ json: { ...alert, misp_results: [], threat_level: 'NONE' } }];\n}\n\nreturn iocs.map(ioc => ({\n  json: { ...alert, current_ioc: ioc }\n}));"
+      },
+      "id": "split-001",
+      "name": "Split IOCs for Lookup",
+      "type": "n8n-nodes-base.code",
+      "position": [-128, 200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_MISP_HOST/attributes/restSearch",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mispApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"returnFormat\": \"json\",\n  \"value\": \"{{ $json.current_ioc.value }}\",\n  \"type\": \"{{ $json.current_ioc.type }}\",\n  \"to_ids\": 1,\n  \"enforceWarninglist\": true,\n  \"limit\": 10\n}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": { "response": { "neverError": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "misp-001",
+      "name": "MISP Attribute Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [96, 200],
+      "typeVersion": 4.2,
+      "credentials": {
+        "mispApi": { "id": "YOUR_CREDENTIAL_ID", "name": "MISP API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst allMatches = [];\nlet alert = null;\n\nfor (const item of items) {\n  if (!alert && item.json.alert_id) {\n    alert = {\n      alert_id: item.json.alert_id,\n      timestamp: item.json.timestamp,\n      agent: item.json.agent,\n      rule: item.json.rule,\n      extracted_iocs: item.json.extracted_iocs,\n      raw_alert: item.json.raw_alert\n    };\n  }\n  \n  const response = item.json.response || item.json;\n  const attributes = response?.Attribute || response?.response?.Attribute || [];\n  \n  if (attributes.length > 0) {\n    const ioc = item.json.current_ioc;\n    allMatches.push({\n      searched_ioc: ioc,\n      matches: attributes.map(attr => ({\n        id: attr.id,\n        event_id: attr.event_id,\n        type: attr.type,\n        value: attr.value,\n        category: attr.category,\n        to_ids: attr.to_ids,\n        comment: attr.comment,\n        event_info: attr.Event?.info,\n        threat_level: attr.Event?.threat_level_id,\n        tags: (attr.Tag || []).map(t => t.name)\n      }))\n    });\n  }\n}\n\nlet threatLevel = 'LOW';\nlet autoBlock = false;\nlet highestMispThreat = 4;\n\nfor (const match of allMatches) {\n  for (const m of match.matches) {\n    if (m.to_ids) autoBlock = true;\n    if (m.threat_level && parseInt(m.threat_level) < highestMispThreat) {\n      highestMispThreat = parseInt(m.threat_level);\n    }\n  }\n}\n\nif (allMatches.length > 0) {\n  if (highestMispThreat === 1 || autoBlock) threatLevel = 'CRITICAL';\n  else if (highestMispThreat === 2) threatLevel = 'HIGH';\n  else if (highestMispThreat === 3) threatLevel = 'MEDIUM';\n  else threatLevel = 'LOW';\n}\n\nconst enrichedAlert = {\n  ...alert,\n  misp_enrichment: {\n    total_matches: allMatches.reduce((sum, m) => sum + m.matches.length, 0),\n    matched_iocs: allMatches,\n    threat_level: threatLevel,\n    auto_block_recommended: autoBlock,\n    highest_misp_threat: highestMispThreat\n  },\n  enriched_at: new Date().toISOString()\n};\n\nreturn [{ json: enrichedAlert }];"
+      },
+      "id": "aggregate-001",
+      "name": "Aggregate MISP Results",
+      "type": "n8n-nodes-base.code",
+      "position": [320, 200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "id": "has-matches", "leftValue": "={{ $json.misp_enrichment.total_matches }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-002",
+      "name": "MISP Matches Found?",
+      "type": "n8n-nodes-base.if",
+      "position": [544, 200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "id": "critical-threat", "leftValue": "={{ $json.misp_enrichment.threat_level }}", "rightValue": "CRITICAL", "operator": { "type": "string", "operation": "equals" } }],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "if-003",
+      "name": "Critical Threat?",
+      "type": "n8n-nodes-base.if",
+      "position": [768, 100],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"username\": \"MISP Alert Bot\",\n  \"icon_emoji\": \":rotating_light:\",\n  \"attachments\": [{\n    \"color\": \"danger\",\n    \"title\": \":warning: CRITICAL - Wazuh Alert Matched MISP Intelligence\",\n    \"fields\": [\n      { \"title\": \"Threat Level\", \"value\": \"{{ $json.misp_enrichment.threat_level }}\", \"short\": true },\n      { \"title\": \"Agent\", \"value\": \"{{ $json.agent.name || 'Unknown' }}\", \"short\": true },\n      { \"title\": \"Rule\", \"value\": \"[{{ $json.rule.id }}] {{ $json.rule.description }}\", \"short\": false },\n      { \"title\": \"MISP Matches\", \"value\": \"{{ $json.misp_enrichment.total_matches }} indicator(s)\", \"short\": true },\n      { \"title\": \"Auto-Block\", \"value\": \"{{ $json.misp_enrichment.auto_block_recommended ? 'RECOMMENDED' : 'Not required' }}\", \"short\": true }\n    ],\n    \"footer\": \"Alert ID: {{ $json.alert_id }}\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "slack-001",
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [992, 0],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"username\": \"MISP Alert Bot\",\n  \"icon_emoji\": \":mag:\",\n  \"attachments\": [{\n    \"color\": \"warning\",\n    \"title\": \":information_source: Wazuh Alert - MISP Match\",\n    \"fields\": [\n      { \"title\": \"Threat Level\", \"value\": \"{{ $json.misp_enrichment.threat_level }}\", \"short\": true },\n      { \"title\": \"Agent\", \"value\": \"{{ $json.agent.name || 'Unknown' }}\", \"short\": true },\n      { \"title\": \"Rule\", \"value\": \"[{{ $json.rule.id }}] {{ $json.rule.description }}\", \"short\": false },\n      { \"title\": \"MISP Matches\", \"value\": \"{{ $json.misp_enrichment.total_matches }} indicator(s)\", \"short\": true }\n    ],\n    \"footer\": \"Alert ID: {{ $json.alert_id }}\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "slack-002",
+      "name": "Slack Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [992, 200],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const alert = $input.first().json;\nconst iocs = alert.misp_enrichment.matched_iocs || [];\n\nconst blockList = [];\nfor (const match of iocs) {\n  const ioc = match.searched_ioc;\n  if (match.matches.some(m => m.to_ids)) {\n    if (ioc.type === 'ip-src' || ioc.type === 'ip-dst') {\n      blockList.push({ type: 'ip', value: ioc.value, comment: `MISP Alert ${alert.alert_id}` });\n    } else if (ioc.type === 'domain') {\n      blockList.push({ type: 'domain', value: ioc.value, comment: `MISP Alert ${alert.alert_id}` });\n    }\n  }\n}\n\nreturn [{ json: { ...alert, block_list: blockList, should_block: blockList.length > 0 } }];"
+      },
+      "id": "blocklist-001",
+      "name": "Prepare Block List",
+      "type": "n8n-nodes-base.code",
+      "position": [992, -200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [{ "id": "should-block", "leftValue": "={{ $json.should_block }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-004",
+      "name": "Should Block?",
+      "type": "n8n-nodes-base.if",
+      "position": [1216, -200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const alert = $input.first().json;\nconst blockList = alert.block_list || [];\n\nreturn blockList.map(item => ({\n  json: { alert_id: alert.alert_id, block_item: item }\n}));"
+      },
+      "id": "split-002",
+      "name": "Split Block Items",
+      "type": "n8n-nodes-base.code",
+      "position": [1440, -200],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_FIREWALL_HOST/api/firewall/alias_util/add/MISP_Blocklist",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"address\": \"{{ $json.block_item.value }}\" }",
+        "options": { "allowUnauthorizedCerts": true }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1664, -200],
+      "id": "firewall-001",
+      "name": "Firewall Add to Blocklist",
+      "credentials": {
+        "httpBasicAuth": { "id": "YOUR_CREDENTIAL_ID", "name": "Firewall API" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_FIREWALL_HOST/api/firewall/alias/reconfigure",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "allowUnauthorizedCerts": true }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1888, -200],
+      "id": "firewall-002",
+      "name": "Firewall Apply Changes",
+      "credentials": {
+        "httpBasicAuth": { "id": "YOUR_CREDENTIAL_ID", "name": "Firewall API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nlet agentIp = data.agent?.ip;\nif (!agentIp || agentIp === 'undefined' || agentIp === '' || agentIp === null) {\n  agentIp = null;\n}\n\nreturn [{\n  json: {\n    alert_id: data.alert_id || `wazuh-${Date.now()}`,\n    timestamp: data.timestamp || new Date().toISOString(),\n    agent_name: data.agent?.name || null,\n    agent_ip: agentIp,\n    rule_id: String(data.rule?.id || ''),\n    rule_level: parseInt(data.rule?.level) || 0,\n    rule_description: data.rule?.description || null,\n    threat_level: data.misp_enrichment?.threat_level || 'NONE',\n    misp_matches: parseInt(data.misp_enrichment?.total_matches) || 0,\n    auto_blocked: Boolean(data.misp_enrichment?.auto_block_recommended),\n    raw_data: data\n  }\n}];"
+      },
+      "id": "prepare-db-001",
+      "name": "Prepare DB Record",
+      "type": "n8n-nodes-base.code",
+      "position": [1440, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": { "__rl": true, "mode": "name", "value": "security" },
+        "table": { "__rl": true, "mode": "name", "value": "wazuh_misp_alerts" },
+        "columns": { "mappingMode": "autoMapInputData", "value": {} },
+        "options": {}
+      },
+      "id": "postgres-001",
+      "name": "Log to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1664, 300],
+      "typeVersion": 2.5,
+      "credentials": {
+        "postgres": { "id": "YOUR_CREDENTIAL_ID", "name": "PostgreSQL" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const alert = $input.first().json;\n\nreturn [{\n  json: {\n    alert_id: alert.alert_id,\n    timestamp: alert.timestamp,\n    agent: alert.agent,\n    rule: alert.rule,\n    misp_enrichment: { total_matches: 0, threat_level: 'NONE', auto_block_recommended: false },\n    note: 'No MISP matches',\n    enriched_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "no-match-001",
+      "name": "No Match Handler",
+      "type": "n8n-nodes-base.code",
+      "position": [992, 400],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const alert = $input.first().json;\n\nreturn [{\n  json: {\n    alert_id: alert.alert_id,\n    timestamp: alert.timestamp,\n    agent: alert.agent,\n    rule: alert.rule,\n    misp_enrichment: { total_matches: 0, threat_level: 'NONE', note: 'No IOCs to search' },\n    enriched_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "no-iocs-001",
+      "name": "No IOCs Handler",
+      "type": "n8n-nodes-base.code",
+      "position": [-128, 500],
+      "typeVersion": 2
+    }
+  ],
+  "connections": {
+    "Wazuh Webhook": { "main": [[{ "node": "Extract IOCs", "type": "main", "index": 0 }]] },
+    "Extract IOCs": { "main": [[{ "node": "Has IOCs?", "type": "main", "index": 0 }]] },
+    "Has IOCs?": { "main": [
+      [{ "node": "Split IOCs for Lookup", "type": "main", "index": 0 }],
+      [{ "node": "No IOCs Handler", "type": "main", "index": 0 }]
+    ]},
+    "Split IOCs for Lookup": { "main": [[{ "node": "MISP Attribute Search", "type": "main", "index": 0 }]] },
+    "MISP Attribute Search": { "main": [[{ "node": "Aggregate MISP Results", "type": "main", "index": 0 }]] },
+    "Aggregate MISP Results": { "main": [[{ "node": "MISP Matches Found?", "type": "main", "index": 0 }]] },
+    "MISP Matches Found?": { "main": [
+      [{ "node": "Critical Threat?", "type": "main", "index": 0 }],
+      [{ "node": "No Match Handler", "type": "main", "index": 0 }]
+    ]},
+    "Critical Threat?": { "main": [
+      [{ "node": "Slack Alert", "type": "main", "index": 0 }, { "node": "Prepare Block List", "type": "main", "index": 0 }],
+      [{ "node": "Slack Info", "type": "main", "index": 0 }]
+    ]},
+    "Slack Alert": { "main": [[{ "node": "Prepare DB Record", "type": "main", "index": 0 }]] },
+    "Slack Info": { "main": [[{ "node": "Prepare DB Record", "type": "main", "index": 0 }]] },
+    "Prepare Block List": { "main": [[{ "node": "Should Block?", "type": "main", "index": 0 }]] },
+    "Should Block?": { "main": [[{ "node": "Split Block Items", "type": "main", "index": 0 }], []] },
+    "Split Block Items": { "main": [[{ "node": "Firewall Add to Blocklist", "type": "main", "index": 0 }]] },
+    "Firewall Add to Blocklist": { "main": [[{ "node": "Firewall Apply Changes", "type": "main", "index": 0 }]] },
+    "No Match Handler": { "main": [[{ "node": "Prepare DB Record", "type": "main", "index": 0 }]] },
+    "No IOCs Handler": { "main": [[{ "node": "Prepare DB Record", "type": "main", "index": 0 }]] },
+    "Prepare DB Record": { "main": [[{ "node": "Log to PostgreSQL", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "security" }, { "name": "misp" }, { "name": "wazuh" }]
+}

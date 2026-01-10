@@ -1,0 +1,181 @@
+// =============================================================================
+// MISP Maintenance Pipeline
+// =============================================================================
+//
+// Purpose: Weekly maintenance tasks for MISP
+// Schedule: Sunday 3 AM (H 3 * * 0)
+//
+// Tasks:
+//   - Update taxonomies
+//   - Update galaxies
+//   - Update warning lists
+//   - Update object templates
+//   - Health check workers
+//
+// Prerequisites:
+//   1. Create 'misp-api-key' credential (Secret text) in Jenkins
+//   2. Ensure Jenkins can reach MISP server
+//
+// =============================================================================
+
+pipeline {
+    agent any
+    
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+    
+    triggers {
+        cron('H 3 * * 0')
+    }
+    
+    environment {
+        MISP_URL = 'https://YOUR_MISP_HOST'
+        MISP_API_KEY = credentials('misp-api-key')
+    }
+    
+    stages {
+        stage('Pre-flight Check') {
+            steps {
+                script {
+                    echo "=== MISP Maintenance Starting ==="
+                    def response = sh(
+                        script: """
+                            curl -sk -o /dev/null -w '%{http_code}' \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/servers/getPyMISPVersion'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (response != '200') {
+                        error "MISP connectivity failed. HTTP ${response}"
+                    }
+                    echo "MISP connectivity: OK"
+                }
+            }
+        }
+        
+        stage('Update Taxonomies') {
+            steps {
+                script {
+                    echo "Updating taxonomies..."
+                    sh """
+                        curl -sk -X POST \
+                        -H 'Authorization: ${MISP_API_KEY}' \
+                        -H 'Accept: application/json' \
+                        '${MISP_URL}/taxonomies/update'
+                    """
+                    echo "Taxonomies updated"
+                }
+            }
+        }
+        
+        stage('Update Galaxies') {
+            steps {
+                script {
+                    echo "Updating galaxies..."
+                    sh """
+                        curl -sk -X POST \
+                        -H 'Authorization: ${MISP_API_KEY}' \
+                        -H 'Accept: application/json' \
+                        '${MISP_URL}/galaxies/update'
+                    """
+                    echo "Galaxies updated"
+                }
+            }
+        }
+        
+        stage('Update Warning Lists') {
+            steps {
+                script {
+                    echo "Updating warning lists..."
+                    sh """
+                        curl -sk -X POST \
+                        -H 'Authorization: ${MISP_API_KEY}' \
+                        -H 'Accept: application/json' \
+                        '${MISP_URL}/warninglists/update'
+                    """
+                    echo "Warning lists updated"
+                }
+            }
+        }
+        
+        stage('Update Object Templates') {
+            steps {
+                script {
+                    echo "Updating object templates..."
+                    sh """
+                        curl -sk -X POST \
+                        -H 'Authorization: ${MISP_API_KEY}' \
+                        -H 'Accept: application/json' \
+                        '${MISP_URL}/objectTemplates/update'
+                    """
+                    echo "Object templates updated"
+                }
+            }
+        }
+        
+        stage('Check Workers') {
+            steps {
+                script {
+                    echo "=== Worker Status ==="
+                    def workers = sh(
+                        script: """
+                            curl -sk \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/servers/getWorkers'
+                        """,
+                        returnStdout: true
+                    )
+                    echo workers
+                }
+            }
+        }
+        
+        stage('Generate Report') {
+            steps {
+                script {
+                    def eventCount = sh(
+                        script: """
+                            curl -sk \
+                            -H 'Authorization: ${MISP_API_KEY}' \
+                            -H 'Accept: application/json' \
+                            '${MISP_URL}/events/index/limit:0' | jq 'length'
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo """
+==============================================
+MISP Maintenance Report
+==============================================
+Timestamp:     ${new Date()}
+Instance:      ${MISP_URL}
+Total Events:  ${eventCount}
+Tasks:         Taxonomies, Galaxies, Warning Lists, Object Templates
+Build:         ${env.BUILD_URL}
+==============================================
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "Maintenance completed successfully"
+        }
+        failure {
+            echo "Maintenance failed!"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
