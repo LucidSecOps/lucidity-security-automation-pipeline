@@ -28,17 +28,17 @@ This document describes the architecture of the Security Automation Pipeline, a 
 │  │   (Webhook)     │  IOC extraction, routing                                   │
 │  └────────┬────────┘                                                            │
 │           │                                                                     │
-│     ┌─────┴─────┬─────────────┬─────────────┐                                  │
-│     ▼           ▼             ▼             ▼                                  │
-│  ┌───────┐  ┌───────┐   ┌──────────┐  ┌──────────┐                             │
-│  │ MISP  │  │ Slack │   │PostgreSQL│  │ Firewall │                             │
-│  │ TIP   │  │ Alert │   │ Logging  │  │ Blocking │                             │
-│  └───────┘  └───────┘   └──────────┘  └──────────┘                             │
+│     ┌─────┴─────┬─────────────┬─────────────┐                                   │
+│     ▼           ▼             ▼             ▼                                   │
+│  ┌───────┐  ┌───────┐   ┌──────────┐  ┌──────────┐                              │
+│  │ MISP  │  │ Slack │   │PostgreSQL│  │ Firewall │                              │
+│  │ TIP   │  │ Alert │   │ Logging  │  │ Blocking │                              │
+│  └───────┘  └───────┘   └──────────┘  └──────────┘                              │
 │                                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────┐       │
-│  │                         JENKINS AUTOMATION                           │       │
-│  │  Feed Sync (6h) │ Maintenance (Weekly) │ Health Checks              │       │
-│  └─────────────────────────────────────────────────────────────────────┘       │
+│  ┌─────────────────────────────────────────────────────────────────────┐        │
+│  │                         JENKINS AUTOMATION                          │        │
+│  │  Feed Sync (6h) │ Maintenance (Weekly) │ Health Checks              │        │
+│  └─────────────────────────────────────────────────────────────────────┘        │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -175,7 +175,7 @@ This document describes the architecture of the Security Automation Pipeline, a 
 ## Security Considerations
 
 ### Network Segmentation
-- Keep security tools on isolated management network
+- Keep security tools on an isolated management network
 - Use firewall rules to restrict access
 - Consider VPN for remote management
 
