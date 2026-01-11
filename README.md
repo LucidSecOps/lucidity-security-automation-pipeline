@@ -11,15 +11,15 @@ An open-source Security Orchestration, Automation, and Response (SOAR) pipeline 
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│    Wazuh     │────▶│     n8n      │────▶│     MISP     │────▶│   Firewall   │
+│    Wazuh     │────▶│     n8n     │────▶│     MISP     │────▶│   Firewall  │
 │    SIEM      │     │  Automation  │     │  Threat Intel│     │   Blocking   │
 └──────────────┘     └──────┬───────┘     └──────────────┘     └──────────────┘
                            │
               ┌────────────┼────────────┐
               ▼            ▼            ▼
         ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │  Slack   │ │ PostgreSQL│ │  Email   │
-        │  Alerts  │ │  Logging  │ │ (opt.)   │
+        │  Slack   │ │ PostgreSQL│ │  Email  │
+        │  Alerts  │ │  Logging  │ │ (opt.)  │
         └──────────┘ └──────────┘ └──────────┘
 ```
 
@@ -27,7 +27,7 @@ An open-source Security Orchestration, Automation, and Response (SOAR) pipeline 
 
 ## ✨ Features
 
-- **Real-time IOC Extraction** - Automatically extracts IPs, domains, hashes from Wazuh alerts
+- **Real-time IOC Extraction** - Automatically extracts IPs, domains, and hashes from Wazuh alerts
 - **MISP Enrichment** - Queries threat intelligence for context on detected indicators
 - **Automated Blocking** - Critical threats auto-blocked on OPNsense/pfSense firewall
 - **Multi-channel Alerting** - Slack notifications with threat context
@@ -87,7 +87,7 @@ cp configs/n8n/workflow.example.json configs/n8n/workflow.json
 cp configs/postgresql/schema.sql /tmp/
 ```
 
-Edit each file with your environment details (IPs, credentials, etc.)
+Edit each file with your environment details (IP addresses, credentials, etc.).
 
 ### 3. Deploy PostgreSQL Schema
 
@@ -121,7 +121,7 @@ sudo systemctl restart wazuh-manager
 4. Configure credentials (MISP API, PostgreSQL, Slack, Firewall)
 5. Activate the workflow
 
-### 6. (Optional) Setup Jenkins Pipelines
+### 6. (Optional) Set up Jenkins Pipelines
 
 Import the Jenkinsfiles for automated maintenance:
 - `configs/jenkins/Jenkinsfile-feed-sync` - Every 6 hours
@@ -287,7 +287,7 @@ sudo grep "Enabling integration" /var/ossec/logs/ossec.log | grep n8n
 ## 🛡️ Security Considerations
 
 - **API Keys**: Store in environment variables or secrets manager, never in code
-- **Network Segmentation**: Keep security components on isolated management network
+- **Network Segmentation**: Keep security components on an isolated management network
 - **TLS**: Enable HTTPS for all API communications
 - **Least Privilege**: Use dedicated service accounts with minimal permissions
 - **Audit Logging**: All actions logged to PostgreSQL for forensic analysis
