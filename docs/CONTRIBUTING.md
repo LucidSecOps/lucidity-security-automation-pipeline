@@ -29,7 +29,7 @@ Thank you for your interest in contributing to the Security Automation Pipeline!
 # Fork the repository on GitHub, then:
 git clone https://github.com/YOUR_USERNAME/security-automation-pipeline.git
 cd security-automation-pipeline
-git remote add upstream https://github.com/teknikscsl/security-automation-pipeline.git
+git remote add upstream https://github.com/LucidSecOps/lucidity-security-automation-pipeline.git
 ```
 
 ### Set Up Development Environment
